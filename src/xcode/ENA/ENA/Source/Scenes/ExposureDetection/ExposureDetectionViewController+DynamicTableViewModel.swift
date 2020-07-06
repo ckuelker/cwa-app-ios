@@ -68,26 +68,38 @@ private extension DynamicCell {
 		case hotline = "hotlineCell"
 	}
 
+	private static let relativeDateTimeFormatter: DateFormatter = {
+		let formatter = DateFormatter()
+		formatter.doesRelativeDateFormatting = true
+		formatter.dateStyle = .short
+		formatter.timeStyle = .short
+		return formatter
+	}()
+
 	private static func exposureDetectionCell(_ identifier: TableViewCellReuseIdentifiers, action: DynamicAction = .none, accessoryAction: DynamicAction = .none, configure: GenericCellConfigurator<ExposureDetectionViewController>? = nil) -> DynamicCell {
 		.custom(withIdentifier: identifier, action: action, accessoryAction: accessoryAction, configure: configure)
 	}
 
-	static func risk(configure: @escaping GenericCellConfigurator<ExposureDetectionViewController>) -> DynamicCell {
+	static func risk(hasSeparator: Bool = true, configure: @escaping GenericCellConfigurator<ExposureDetectionViewController>) -> DynamicCell {
 		.exposureDetectionCell(ReusableCellIdentifer.risk) { viewController, cell, indexPath in
 			let state = viewController.state
 			cell.backgroundColor = state.riskTintColor
-			cell.tintColor = state.isTracingEnabled ? .enaColor(for: .textContrast) : .enaColor(for: .riskNeutral)
+
+			var tintColor: UIColor = state.isTracingEnabled ? .enaColor(for: .textContrast) : .enaColor(for: .riskNeutral)
+			if state.riskLevel == .unknownOutdated { tintColor = .enaColor(for: .riskNeutral) }
+			cell.tintColor = tintColor
+
 			cell.textLabel?.textColor = state.riskContrastColor
 			if let cell = cell as? ExposureDetectionRiskCell {
-				cell.separatorView.isHidden = (indexPath.row == 0)
+				cell.separatorView.isHidden = (indexPath.row == 0) || !hasSeparator
 				cell.separatorView.backgroundColor = state.isTracingEnabled ? .enaColor(for: .hairlineContrast) : .enaColor(for: .hairline)
 			}
 			configure(viewController, cell, indexPath)
 		}
 	}
 
-	static func riskLastRiskLevel(text: String, image: UIImage?) -> DynamicCell {
-		.risk { viewController, cell, _ in
+	static func riskLastRiskLevel(hasSeparator: Bool = true, text: String, image: UIImage?) -> DynamicCell {
+		.risk(hasSeparator: hasSeparator) { viewController, cell, _ in
 			let state = viewController.state
 			cell.textLabel?.text = String(format: text, state.actualRiskText)
 			cell.imageView?.image = image
@@ -105,10 +117,8 @@ private extension DynamicCell {
 
 	static func riskLastExposure(text: String, image: UIImage?) -> DynamicCell {
 		.risk { viewController, cell, _ in
-			let exposureDetectionDate = viewController.state.risk?.details.exposureDetectionDate ?? Date()
-			let calendar = Calendar.current
-			let daysSinceLastExposure = calendar.dateComponents([.day], from: exposureDetectionDate, to: Date()).day ?? 0
-			cell.textLabel?.text = String(format: text, daysSinceLastExposure)
+			let daysSinceLastExposure = viewController.state.risk?.details.daysSinceLastExposure ?? 0
+			cell.textLabel?.text = .localizedStringWithFormat(text, daysSinceLastExposure)
 			cell.imageView?.image = image
 		}
 	}
@@ -131,15 +141,7 @@ private extension DynamicCell {
 		.risk { viewController, cell, _ in
 			var valueText: String
 			if let date: Date = viewController.state.risk?.details.exposureDetectionDate {
-				let dateFormatter = DateFormatter(); dateFormatter.dateStyle = .short
-				let timeFormatter = DateFormatter(); timeFormatter.timeStyle = .short
-
-				let dateValue = dateFormatter.string(from: date)
-				let timeValue = timeFormatter.string(from: date)
-
-				let days = Calendar.current.dateComponents([.day], from: date, to: Date()).day ?? 100
-				valueText = String.localizedStringWithFormat(AppStrings.ExposureDetection.refreshedFormat, days)
-				valueText = String(format: valueText, timeValue, dateValue)
+				valueText = relativeDateTimeFormatter.string(from: date)
 			} else {
 				valueText = AppStrings.ExposureDetection.refreshedNever
 			}
@@ -162,8 +164,7 @@ private extension DynamicCell {
 		.exposureDetectionCell(ReusableCellIdentifer.riskRefresh) { viewController, cell, _ in
 			let state = viewController.state
 			cell.backgroundColor = state.riskTintColor
-			let components = Calendar.current.dateComponents([.minute, .second], from: Date(), to: state.nextRefresh ?? Date())
-			cell.textLabel?.text = String(format: text, components.minute ?? 0, components.second ?? 0)
+			cell.textLabel?.text = AppStrings.ExposureDetection.refresh24h
 		}
 	}
 
@@ -180,13 +181,16 @@ private extension DynamicCell {
 			let cell = cell as? ExposureDetectionHeaderCell
 			cell?.titleLabel?.text = title
 			cell?.subtitleLabel?.text = subtitle
+			cell?.titleLabel?.accessibilityTraits = .header
 		}
 	}
 
 	static func guide(text: String, image: UIImage?) -> DynamicCell {
 		.exposureDetectionCell(ReusableCellIdentifer.guide) { viewController, cell, _ in
 			let state = viewController.state
-			cell.tintColor = state.isTracingEnabled ? state.riskTintColor : .enaColor(for: .riskNeutral)
+			var tintColor = state.isTracingEnabled ? state.riskTintColor : .enaColor(for: .riskNeutral)
+			if state.riskLevel == .unknownOutdated { tintColor = .enaColor(for: .riskNeutral) }
+			cell.tintColor = tintColor
 			cell.textLabel?.text = text
 			cell.imageView?.image = image
 		}
@@ -239,8 +243,7 @@ extension ExposureDetectionViewController {
 			isHidden: { viewController in
 				guard let state = (viewController as? ExposureDetectionViewController)?.state else { return true }
 				if state.isLoading { return true }
-				if state.nextRefresh == nil { return true }
-				return state.mode != .automatic
+				return state.detectionMode != .automatic
 			},
 			cells: [
 				.riskRefresh(text: AppStrings.ExposureDetection.refreshingIn)
@@ -272,7 +275,7 @@ extension ExposureDetectionViewController {
 		)
 	}
 
-	private func explanationSection(text: String, isActive: Bool) -> DynamicSection {
+	private func explanationSection(text: String, isActive: Bool, accessibilityIdentifier: String?) -> DynamicSection {
 		.section(
 			header: .backgroundSpace(height: 8),
 			footer: .backgroundSpace(height: 16),
@@ -281,7 +284,7 @@ extension ExposureDetectionViewController {
 					title: AppStrings.ExposureDetection.explanationTitle,
 					subtitle: isActive ? AppStrings.ExposureDetection.explanationSubtitleActive : AppStrings.ExposureDetection.explanationSubtitleInactive
 				),
-				.body(text: text)
+				.body(text: text, accessibilityIdentifier: accessibilityIdentifier)
 			]
 		)
 	}
@@ -290,16 +293,18 @@ extension ExposureDetectionViewController {
 		DynamicTableViewModel([
 			.section(
 				header: .none,
-				footer: .separator(color: .enaColor(for: .hairline), height: 1, insets: UIEdgeInsets(top: 10, left: 0, bottom: 16, right: 0)),
+				footer: .separator(color: .enaColor(for: .hairline), height: 1, insets: UIEdgeInsets(top: 10, left: 0, bottom: 0, right: 0)),
 				cells: [
 					.riskText(text: AppStrings.ExposureDetection.offText),
-					.riskLastRiskLevel(text: AppStrings.ExposureDetection.lastRiskLevel, image: UIImage(named: "Icons_LetzteErmittlung-Light")),
+					.riskLastRiskLevel(hasSeparator: false, text: AppStrings.ExposureDetection.lastRiskLevel, image: UIImage(named: "Icons_LetzteErmittlung-Light")),
 					.riskRefreshed(text: AppStrings.ExposureDetection.refreshed, image: UIImage(named: "Icons_Aktualisiert"))
 				]
 			),
 			riskLoadingSection,
 			standardGuideSection,
-			explanationSection(text: AppStrings.ExposureDetection.explanationTextOff, isActive: false)
+			explanationSection(
+				text: AppStrings.ExposureDetection.explanationTextOff, isActive: false,
+				accessibilityIdentifier: AccessibilityIdentifiers.ExposureDetection.explanationTextOff)
 		])
 	}
 
@@ -307,16 +312,20 @@ extension ExposureDetectionViewController {
 		DynamicTableViewModel([
 			.section(
 				header: .none,
-				footer: .separator(color: .enaColor(for: .hairline), height: 1, insets: UIEdgeInsets(top: 10, left: 0, bottom: 16, right: 0)),
+				footer: .separator(color: .enaColor(for: .hairline), height: 1, insets: UIEdgeInsets(top: 10, left: 0, bottom: 0, right: 0)),
 				cells: [
 					.riskText(text: AppStrings.ExposureDetection.outdatedText),
-					.riskLastRiskLevel(text: AppStrings.ExposureDetection.lastRiskLevel, image: UIImage(named: "Icons_LetzteErmittlung-Light")),
+					.riskLastRiskLevel(hasSeparator: false, text: AppStrings.ExposureDetection.lastRiskLevel, image: UIImage(named: "Icons_LetzteErmittlung-Light")),
 					.riskRefreshed(text: AppStrings.ExposureDetection.refreshed, image: UIImage(named: "Icons_Aktualisiert"))
 				]
 			),
 			riskLoadingSection,
 			standardGuideSection,
-			explanationSection(text: AppStrings.ExposureDetection.explanationTextOutdated, isActive: false)
+			explanationSection(
+				text: AppStrings.ExposureDetection.explanationTextOutdated,
+				isActive: false,
+				accessibilityIdentifier: AccessibilityIdentifiers.ExposureDetection.explanationTextOutdated
+			)
 		])
 	}
 
@@ -328,7 +337,11 @@ extension ExposureDetectionViewController {
 			riskRefreshSection,
 			riskLoadingSection,
 			standardGuideSection,
-			explanationSection(text: AppStrings.ExposureDetection.explanationTextUnknown, isActive: false)
+			explanationSection(
+				text: AppStrings.ExposureDetection.explanationTextUnknown,
+				isActive: false,
+				accessibilityIdentifier: AccessibilityIdentifiers.ExposureDetection.explanationTextUnknown
+			)
 		])
 	}
 
@@ -342,7 +355,11 @@ extension ExposureDetectionViewController {
 			riskRefreshSection,
 			riskLoadingSection,
 			standardGuideSection,
-			explanationSection(text: AppStrings.ExposureDetection.explanationTextLow, isActive: true)
+			explanationSection(
+				text: AppStrings.ExposureDetection.explanationTextLow,
+				isActive: true,
+				accessibilityIdentifier: AccessibilityIdentifiers.ExposureDetection.explanationTextLow
+			)
 		])
 	}
 
@@ -370,7 +387,11 @@ extension ExposureDetectionViewController {
 					])
 				]
 			),
-			explanationSection(text: AppStrings.ExposureDetection.explanationTextHigh, isActive: true)
+			explanationSection(
+				text: AppStrings.ExposureDetection.explanationTextHigh,
+				isActive: true,
+				accessibilityIdentifier: AccessibilityIdentifiers.ExposureDetection.explanationTextHigh
+			)
 		])
 	}
 }

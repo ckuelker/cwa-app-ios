@@ -40,6 +40,7 @@ class NotificationSettingsViewController: UIViewController {
 		super.init(coder: coder)
 	}
 
+	@available(*, unavailable)
 	required init?(coder _: NSCoder) {
 		fatalError("init(coder:) has not been implemented")
 	}
@@ -49,7 +50,7 @@ class NotificationSettingsViewController: UIViewController {
 
 		tableView.delegate = self
 		tableView.dataSource = self
-		tableView.separatorColor = .preferredColor(for: .hairline)
+		tableView.separatorColor = .enaColor(for: .hairline)
 
 		navigationItem.title = AppStrings.NotificationSettings.navigationBarTitle
 		navigationController?.navigationBar.prefersLargeTitles = true
@@ -60,6 +61,9 @@ class NotificationSettingsViewController: UIViewController {
 			name: UIApplication.willEnterForegroundNotification,
 			object: UIApplication.shared
 		)
+
+		// Setup view to prevent unrendered content behind the UserNotification alert
+		setupView()
 
 		notificationSettings()
 	}
@@ -87,12 +91,16 @@ class NotificationSettingsViewController: UIViewController {
 	private func notificationSettings() {
 		let center = UNUserNotificationCenter.current()
 
-		center.getNotificationSettings { [weak self] settings in
+		center.requestAuthorization(options: [.alert, .sound, .badge]) { [weak self] granted, error in
 			guard let self = self else { return }
 
-			let authorized = (settings.authorizationStatus == .authorized) || (settings.authorizationStatus == .provisional)
+			if let error = error {
+				log(message: "Error while requesting notifications permissions: \(error.localizedDescription)")
+				self.viewModel = NotificationSettingsViewModel.notificationsOff()
+				return
+			}
 
-			self.viewModel = authorized ? NotificationSettingsViewModel.notificationsOn(self.store) : NotificationSettingsViewModel.notificationsOff()
+			self.viewModel = granted ? NotificationSettingsViewModel.notificationsOn(self.store) : NotificationSettingsViewModel.notificationsOff()
 
 			DispatchQueue.main.async {
 				self.setupView()
@@ -103,6 +111,9 @@ class NotificationSettingsViewController: UIViewController {
 
 	private func setupView() {
 		illustrationImageView.image = UIImage(named: viewModel.image)
+		illustrationImageView.isAccessibilityElement = true
+		illustrationImageView.accessibilityLabel = viewModel.imageDescription
+		illustrationImageView.accessibilityIdentifier = "AppStrings.Settings.imageDescription"
 
 		if let title = viewModel.title {
 			titleLabel.isHidden = false
@@ -127,6 +138,8 @@ class NotificationSettingsViewController: UIViewController {
 		infoViewImage.image = UIImage(named: viewModel.icon)
 		infoViewDescriptionLabel.text = viewModel.description
 		infoViewButton.setTitle(viewModel.openSettings, for: .normal)
+
+		// TODO: Remove these lines after they are added to ENAButton
 		infoViewButton.titleLabel?.lineBreakMode = .byWordWrapping
 
 		if let infoViewButton = infoViewButton {
@@ -149,6 +162,14 @@ extension NotificationSettingsViewController: UITableViewDataSource, UITableView
 		}
 	}
 
+	func tableView(_ tableView: UITableView, heightForHeaderInSection section: Int) -> CGFloat {
+		if traitCollection.preferredContentSizeCategory.isAccessibilityCategory {
+			return UITableView.automaticDimension
+		} else {
+			return 38
+		}
+	}
+
 	func tableView(_: UITableView, titleForHeaderInSection section: Int) -> String? {
 		let section = viewModel.sections[section]
 
@@ -156,6 +177,10 @@ extension NotificationSettingsViewController: UITableViewDataSource, UITableView
 		case let .settingsOn(title, _), let .settingsOff(title, _):
 			return title
 		}
+	}
+
+	func tableView(_ tableView: UITableView, heightForFooterInSection section: Int) -> CGFloat {
+		return 16
 	}
 
 	func tableView(_: UITableView, cellForRowAt indexPath: IndexPath) -> UITableViewCell {
@@ -196,7 +221,7 @@ extension NotificationSettingsViewController: UITableViewDataSource, UITableView
 
 		switch section {
 		case .settingsOn:
-			return isAccessibility ? 220 : 44
+			return isAccessibility ? 230 : 44
 		case .settingsOff:
 			return isAccessibility ? 120 : 44
 		}

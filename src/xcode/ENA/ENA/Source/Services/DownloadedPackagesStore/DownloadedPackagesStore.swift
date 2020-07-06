@@ -16,6 +16,7 @@
 // under the License.
 
 import Foundation
+import FMDB
 
 protocol DownloadedPackagesStore: AnyObject {
 	func open()
@@ -27,4 +28,5 @@ protocol DownloadedPackagesStore: AnyObject {
 	func allDays() -> [String] // 2020-05-30
 	func hours(for day: String) -> [Int]
 	func reset()
+	func deleteOutdatedDays(now: String) throws
 }

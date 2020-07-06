@@ -15,6 +15,8 @@
 // specific language governing permissions and limitations
 // under the License.
 
+#if !RELEASE
+
 import ExposureNotification
 import UIKit
 
@@ -36,6 +38,7 @@ final class DMSubmissionStateViewController: UITableViewController {
 		super.init(style: .plain)
 	}
 
+	@available(*, unavailable)
 	required init?(coder _: NSCoder) {
 		fatalError("init(coder:) has not been implemented")
 	}
@@ -60,11 +63,19 @@ final class DMSubmissionStateViewController: UITableViewController {
 	func performCheck() {
 		let group = DispatchGroup()
 
-		group.enter()
 		var allPackages = [SAPDownloadedPackage]()
-		client.fetch { result in
-			allPackages = result.allKeyPackages
-			group.leave()
+
+		group.enter()
+		client.availableDays { result in
+			switch result {
+			case let .success(days):
+				self.client.fetchDays(days) { daysResult in
+					allPackages.append(contentsOf: Array(daysResult.bucketsByDay.values))
+					group.leave()
+				}
+			case .failure:
+				group.leave()
+			}
 		}
 
 		var localKeys = [ENTemporaryExposureKey]()
@@ -116,9 +127,7 @@ final class DMSubmissionStateViewController: UITableViewController {
 }
 
 private extension Data {
-	// swiftlint:disable:next force_unwrapping
-	static let binHeader = "EK Export v1    ".data(using: .utf8)!
-
+	static let binHeader = Data("EK Export v1    ".utf8)
 	var withoutBinHeader: Data {
 		let headerRange = startIndex ..< Data.binHeader.count
 
@@ -148,3 +157,5 @@ private extension Array where Element == Apple_TemporaryExposureKey {
 		}
 	}
 }
+
+#endif

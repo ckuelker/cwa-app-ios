@@ -15,6 +15,8 @@
 // specific language governing permissions and limitations
 // under the License.
 
+#if !RELEASE
+
 import UIKit
 
 /// A view controller that displays a `Key` as a QR code.
@@ -26,6 +28,7 @@ final class DMQRCodeViewController: UIViewController {
 		super.init(nibName: nil, bundle: nil)
 	}
 
+	@available(*, unavailable)
 	required init?(coder _: NSCoder) {
 		fatalError("init(coder:) has not been implemented")
 	}
@@ -100,3 +103,5 @@ private extension UIView {
 		view.centerYAnchor.constraint(equalTo: centerYAnchor).isActive = true
 	}
 }
+
+#endif

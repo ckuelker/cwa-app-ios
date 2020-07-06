@@ -35,6 +35,10 @@ enum OnboardingPageType: Int, CaseIterable {
 	}
 }
 
+extension OnboardingInfoViewController: RequiresAppDependencies {
+
+}
+
 final class OnboardingInfoViewController: UIViewController {
 	// MARK: Creating a Onboarding View Controller
 
@@ -50,6 +54,7 @@ final class OnboardingInfoViewController: UIViewController {
 		super.init(coder: coder)
 	}
 
+	@available(*, unavailable)
 	required init?(coder _: NSCoder) {
 		fatalError("init(coder:) has intentionally not been implemented")
 	}
@@ -59,7 +64,11 @@ final class OnboardingInfoViewController: UIViewController {
 	var pageType: OnboardingPageType
 	var exposureManager: ExposureManager
 	var store: Store
+
 	@IBOutlet var imageView: UIImageView!
+	@IBOutlet var stateHeaderLabel: ENALabel!
+	@IBOutlet var stateTitleLabel: ENALabel!
+	@IBOutlet var stateStateLabel: ENALabel!
 	@IBOutlet var titleLabel: UILabel!
 	@IBOutlet var boldLabel: UILabel!
 	@IBOutlet var textLabel: UILabel!
@@ -67,11 +76,14 @@ final class OnboardingInfoViewController: UIViewController {
 	@IBOutlet var ignoreButton: ENAButton!
 
 	@IBOutlet var scrollView: UIScrollView!
-	@IBOutlet weak var stackView: UIStackView!
+	@IBOutlet var stackView: UIStackView!
+	@IBOutlet var stateView: UIView!
+	@IBOutlet var innerStackView: UIStackView!
 	@IBOutlet var footerView: UIView!
 
 	private var onboardingInfos = OnboardingInfo.testData()
 	private var exposureManagerActivated = false
+	var htmlTextView: HtmlTextView?
 
 	var onboardingInfo: OnboardingInfo?
 
@@ -81,27 +93,21 @@ final class OnboardingInfoViewController: UIViewController {
 		// should be revised in the future
 		viewRespectsSystemMinimumLayoutMargins = false
 		view.layoutMargins = .zero
-		updateUI()
 		setupAccessibility()
 	}
 
 	override func viewWillAppear(_ animated: Bool) {
 		super.viewWillAppear(animated)
-		if pageType == .togetherAgainstCoronaPage {
-			navigationController?.setNavigationBarHidden(true, animated: true)
-		} else {
-			navigationController?.navigationBar.shadowImage = UIImage()
-		}
-	}
 
-	override func viewWillDisappear(_ animated: Bool) {
-		super.viewWillDisappear(animated)
-		navigationController?.setNavigationBarHidden(false, animated: true)
+		let preconditions = exposureManager.preconditions()
+		updateUI(exposureManagerState: preconditions)
 	}
 
 	override func viewDidLayoutSubviews() {
 		super.viewDidLayoutSubviews()
-		scrollView.contentInset.bottom = footerView.frame.height
+
+		scrollView.contentInset.bottom = footerView.frame.height - scrollView.safeAreaInsets.bottom
+		scrollView.verticalScrollIndicatorInsets.bottom = scrollView.contentInset.bottom
 	}
 
 	func runActionForPageType(completion: @escaping () -> Void) {
@@ -140,13 +146,20 @@ final class OnboardingInfoViewController: UIViewController {
 		present(alert, animated: true, completion: nil)
 	}
 
-	private func updateUI() {
+	private func updateUI(exposureManagerState: ExposureManagerState) {
 		guard isViewLoaded else { return }
 		guard let onboardingInfo = onboardingInfo else { return }
 
 		titleLabel.text = onboardingInfo.title
 
-		imageView.image = UIImage(named: onboardingInfo.imageName)
+		let exposureNotificationsNotSet = exposureManagerState.status == .unknown || exposureManagerState.status == .bluetoothOff
+		let exposureNotificationsEnabled = exposureManagerState.enabled
+		let exposureNotificationsDisabled = !exposureNotificationsEnabled && !exposureNotificationsNotSet
+		let showStateView = onboardingInfo.showState && !exposureNotificationsNotSet
+
+		// swiftlint:disable force_unwrapping
+		let imageName = exposureNotificationsDisabled && onboardingInfo.alternativeImageName != nil ? onboardingInfo.alternativeImageName! : onboardingInfo.imageName
+		imageView.image = UIImage(named: imageName)
 
 		boldLabel.text = onboardingInfo.boldText
 		boldLabel.isHidden = onboardingInfo.boldText.isEmpty
@@ -158,7 +171,13 @@ final class OnboardingInfoViewController: UIViewController {
 		nextButton.isHidden = onboardingInfo.actionText.isEmpty
 
 		ignoreButton.setTitle(onboardingInfo.ignoreText, for: .normal)
-		ignoreButton.isHidden = onboardingInfo.ignoreText.isEmpty
+		ignoreButton.isHidden = onboardingInfo.ignoreText.isEmpty || showStateView
+
+		stateView.isHidden = !showStateView
+
+		stateHeaderLabel.text = onboardingInfo.stateHeader?.uppercased()
+		stateTitleLabel.text = onboardingInfo.stateTitle
+		stateStateLabel.text = exposureNotificationsEnabled ? onboardingInfo.stateActivated : onboardingInfo.stateDeactivated
 
 		switch pageType {
 		case .enableLoggingOfContactsPage:
@@ -167,13 +186,16 @@ final class OnboardingInfoViewController: UIViewController {
 				body: AppStrings.Onboarding.onboardingInfo_enableLoggingOfContactsPage_panelBody
 			)
 		case .privacyPage:
-			stackView.arrangedSubviews.last?.isHidden = true
+			innerStackView.isHidden = true
 			let textView = HtmlTextView()
+			textView.layoutMargins = .zero
 			textView.delegate = self
 			if let url = Bundle.main.url(forResource: "privacy-policy", withExtension: "html") {
 				textView.load(from: url)
 			}
 			stackView.addArrangedSubview(textView)
+			htmlTextView = textView
+			addSkipAccessibilityActionToHeader()
 		default:
 			break
 		}
@@ -190,11 +212,25 @@ final class OnboardingInfoViewController: UIViewController {
 
 		imageView.accessibilityLabel = onboardingInfo?.imageDescription
 
+		titleLabel.accessibilityIdentifier = onboardingInfo?.titleAccessibilityIdentifier
+		imageView.accessibilityIdentifier = onboardingInfo?.imageAccessibilityIdentifier
+		nextButton.accessibilityIdentifier = onboardingInfo?.actionTextAccessibilityIdentifier
+		ignoreButton.accessibilityIdentifier = onboardingInfo?.ignoreTextAccessibilityIdentifier
+
 		titleLabel.accessibilityTraits = .header
-		
-		titleLabel.accessibilityIdentifier = Accessibility.StaticText.onboardingTitle
-		nextButton.accessibilityIdentifier = Accessibility.Button.next
-		ignoreButton.accessibilityIdentifier = Accessibility.Button.ignore
+	}
+
+	func addSkipAccessibilityActionToHeader() {
+		titleLabel.accessibilityHint = AppStrings.Onboarding.onboardingContinueDescription
+		let actionName = AppStrings.Onboarding.onboardingContinue
+		let skipAction = UIAccessibilityCustomAction(name: actionName, target: self, selector: #selector(skip(_:)))
+		titleLabel.accessibilityCustomActions = [skipAction]
+		htmlTextView?.accessibilityCustomActions = [skipAction]
+	}
+
+	@objc
+	func skip(_ sender: Any) {
+		didTapNextButton(sender)
 	}
 
 	private func persistTimestamp(completion: (() -> Void)?) {
@@ -227,7 +263,6 @@ final class OnboardingInfoViewController: UIViewController {
 				log(message: "Encourage the user to consider enabling Exposure Notifications.", level: .warning)
 			case .exposureNotificationAuthorization:
 				log(message: "Encourage the user to authorize this application", level: .warning)
-				print("Encourage the user to authorize this application: \(ENManager.authorizationStatus)")
 			case .exposureNotificationUnavailable:
 				log(message: "Tell the user that Exposure Notifications is currently not available.", level: .warning)
 			case .apiMisuse:
@@ -284,8 +319,8 @@ final class OnboardingInfoViewController: UIViewController {
 	}
 
 	func showError(_ error: ExposureNotificationError, from viewController: UIViewController, completion: (() -> Void)?) {
-		let alert = UIAlertController(title: "Error", message: String(describing: error), preferredStyle: .alert)
-		alert.addAction(UIAlertAction(title: "OK", style: .cancel))
+		let alert = UIAlertController(title: AppStrings.ExposureSubmission.generalErrorTitle, message: String(describing: error), preferredStyle: .alert)
+		alert.addAction(UIAlertAction(title: AppStrings.Common.alertActionOk, style: .cancel))
 		viewController.present(alert, animated: true, completion: completion)
 	}
 
@@ -339,5 +374,12 @@ extension OnboardingInfoViewController: UITextViewDelegate {
 	func textView(_ textView: UITextView, shouldInteractWith url: URL, in characterRange: NSRange, interaction: UITextItemInteraction) -> Bool {
 		WebPageHelper.openSafari(withUrl: url, from: self)
 		return false
+	}
+}
+
+extension OnboardingInfoViewController: NavigationBarOpacityDelegate {
+	var preferredNavigationBarOpacity: CGFloat {
+		let alpha = (scrollView.adjustedContentInset.top + scrollView.contentOffset.y) / scrollView.adjustedContentInset.top
+		return max(0, min(alpha, 1))
 	}
 }

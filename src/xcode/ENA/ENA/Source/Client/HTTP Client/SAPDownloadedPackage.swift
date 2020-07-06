@@ -17,6 +17,7 @@
 
 import Foundation
 import ZIPFoundation
+import CryptoKit
 
 struct SAPDownloadedPackage {
 	// MARK: Creating a Key Package
@@ -36,11 +37,52 @@ struct SAPDownloadedPackage {
 			return nil
 		}
 	}
-
+	
 	// MARK: Properties
 
 	let bin: Data
 	let signature: Data
+
+	// MARK: - Verification
+
+	typealias Verification = (SAPDownloadedPackage) -> Bool
+	struct Verifier {
+		private let keyProvider: PublicKeyProviding
+
+		init(key provider: @escaping PublicKeyProviding = PublicKeyStore.get) {
+			self.keyProvider = provider
+		}
+
+		func verify(_ package: SAPDownloadedPackage) -> Bool {
+			guard
+				let parsedSignatureFile = try? SAP_TEKSignatureList(serializedData: package.signature),
+				let bundleId = Bundle.main.bundleIdentifier
+			else {
+				return false
+			}
+
+			for signatureEntry in parsedSignatureFile.signatures {
+				let signatureData: Data = signatureEntry.signature
+				guard
+					let publicKey = try? keyProvider(bundleId),
+					let signature = try? P256.Signing.ECDSASignature(derRepresentation: signatureData)
+				else {
+					logError(message: "Could not validate signature of downloaded package", level: .warning)
+					continue
+				}
+
+				if publicKey.isValidSignature(signature, for: package.bin) {
+					return true
+				}
+			}
+
+			return false
+		}
+
+		func callAsFunction(_ package: SAPDownloadedPackage) -> Bool {
+			verify(package)
+		}
+	}
 }
 
 private extension Archive {
@@ -48,6 +90,7 @@ private extension Archive {
 	enum KeyPackageError: Error {
 		case binNotFound
 		case sigNotFound
+		case signatureCheckFailed
 	}
 
 	func extractData(from entry: Entry) throws -> Data {

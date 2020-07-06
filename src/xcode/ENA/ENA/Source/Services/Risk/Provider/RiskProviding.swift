@@ -20,26 +20,10 @@
 import Foundation
 
 protocol RiskProviding: AnyObject {
-	typealias Completion = (Result<Risk, Error>) -> Void
+	typealias Completion = (Risk?) -> Void
 
 	func observeRisk(_ consumer: RiskConsumer)
-	func requestRisk()
+	func requestRisk(userInitiated: Bool, completion: Completion?)
 
 	var configuration: RiskProvidingConfiguration { get set }
-}
-
-final class RiskConsumer: NSObject {
-	// MARK: Creating a Consumer
-	init(targetQueue: DispatchQueue = .main) {
-		self.targetQueue = targetQueue
-	}
-
-	// MARK: Properties
-	let targetQueue: DispatchQueue
-
-	/// Called when the risk level changed
-	var didCalculateRisk: ((Risk) -> Void)?
-
-	/// Called when the date of the next exposure detection changed
-	var nextExposureDetectionDateDidChange: ((Date) -> Void)?
 }

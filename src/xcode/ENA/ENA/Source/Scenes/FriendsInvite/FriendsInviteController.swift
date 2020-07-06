@@ -19,7 +19,7 @@ import Foundation
 import LinkPresentation
 import UIKit
 
-final class FriendsInviteController: UIViewController, UIActivityItemSource {
+final class FriendsInviteController: UIViewController {
 	@IBOutlet var titleLabel: UILabel!
 	@IBOutlet var descriptionLabel: UILabel!
 	@IBOutlet var inviteButton: ENAButton!
@@ -28,9 +28,9 @@ final class FriendsInviteController: UIViewController, UIActivityItemSource {
 	@IBOutlet var footerView: UIView!
 	@IBOutlet weak var imageView: UIImageView!
 
-	let shareTitle = AppStrings.InviteFriends.shareTitle
+	private let shareTitle = AppStrings.InviteFriends.shareTitle
 	// swiftlint:disable:next force_unwrapping
-	let shareUrl = URL(string: AppStrings.InviteFriends.shareUrl)!
+	private let shareUrl = URL(string: AppStrings.InviteFriends.shareUrl)!
 
 	override func viewDidLoad() {
 		super.viewDidLoad()
@@ -43,12 +43,9 @@ final class FriendsInviteController: UIViewController, UIActivityItemSource {
 		descriptionLabel.text = AppStrings.InviteFriends.description
 		imageView.isAccessibilityElement = true
 		imageView.accessibilityLabel = AppStrings.InviteFriends.imageAccessLabel
+		imageView.accessibilityIdentifier = AccessibilityIdentifiers.InviteFriends.imageAccessLabel
 
 		inviteButton.setTitle(AppStrings.InviteFriends.submit, for: .normal)
-
-		if let inviteButton = inviteButton, let titleLabel = inviteButton.titleLabel {
-			inviteButton.addConstraint(NSLayoutConstraint(item: inviteButton, attribute: .height, relatedBy: .equal, toItem: titleLabel, attribute: .height, multiplier: 1, constant: 0))
-		}
 	}
 
 	override func viewDidLayoutSubviews() {
@@ -58,19 +55,35 @@ final class FriendsInviteController: UIViewController, UIActivityItemSource {
 	}
 
 	@IBAction func inviteAction(_: UIButton) {
-		let inviteViewController = UIActivityViewController(activityItems: [self], applicationActivities: [])
+		let inviteViewController = UIActivityViewController(activityItems: [self, shareUrl], applicationActivities: [])
 		inviteViewController.popoverPresentationController?.sourceView = view
 		present(inviteViewController, animated: true)
 	}
 
-	// MARK: UIActivityItemSource
+	// MARK: Private functions
 
+	private func appIcon() -> UIImage? {
+		if let icons = Bundle.main.infoDictionary?["CFBundleIcons"] as? [String: Any],
+			let icon = icons["CFBundlePrimaryIcon"] as? [String: Any],
+			let iconFiles = icon["CFBundleIconFiles"] as? [String],
+			let lastIcon = iconFiles.last {
+			return UIImage(named: lastIcon)
+		}
+		return nil
+	}
+}
+
+extension FriendsInviteController: UIActivityItemSource {
 	func activityViewControllerPlaceholderItem(_: UIActivityViewController) -> Any {
-		shareTitle
+		return shareTitle
 	}
 
-	func activityViewController(_: UIActivityViewController, itemForActivityType _: UIActivity.ActivityType?) -> Any? {
-		shareUrl
+	func activityViewController(_: UIActivityViewController, itemForActivityType activityType: UIActivity.ActivityType?) -> Any? {
+		if activityType == .mail {
+			return ""
+		}
+
+		return shareTitle
 	}
 
 	func activityViewControllerLinkMetadata(_: UIActivityViewController) -> LPLinkMetadata? {
@@ -88,18 +101,6 @@ final class FriendsInviteController: UIViewController, UIActivityItemSource {
 	}
 
 	func activityViewController(_: UIActivityViewController, subjectForActivityType _: UIActivity.ActivityType?) -> String {
-		shareTitle
-	}
-
-	// MARK: Private functions
-
-	private func appIcon() -> UIImage? {
-		if let icons = Bundle.main.infoDictionary?["CFBundleIcons"] as? [String: Any],
-			let icon = icons["CFBundlePrimaryIcon"] as? [String: Any],
-			let iconFiles = icon["CFBundleIconFiles"] as? [String],
-			let lastIcon = iconFiles.last {
-			return UIImage(named: lastIcon)
-		}
-		return nil
+		return shareTitle
 	}
 }

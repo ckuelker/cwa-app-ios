@@ -15,6 +15,8 @@
 // specific language governing permissions and limitations
 // under the License.
 
+#if !RELEASE
+
 import ExposureNotification
 import UIKit
 
@@ -34,6 +36,7 @@ final class DMViewController: UITableViewController {
 		title = "👩🏾‍💻🧑‍💻"
 	}
 
+	@available(*, unavailable)
 	required init?(coder _: NSCoder) {
 		fatalError("init(coder:) has not been implemented")
 	}
@@ -95,10 +98,14 @@ final class DMViewController: UITableViewController {
 
 	@objc
 	private func showConfiguration() {
+		guard let client = client as? HTTPClient else {
+			logError(message: "the developer menu only supports apps using a real http client")
+			return
+		}
 		let viewController = DMConfigurationViewController(
-			distributionURL: store.developerDistributionBaseURLOverride,
-			submissionURL: store.developerSubmissionBaseURLOverride,
-			verificationURL: store.developerVerificationBaseURLOverride
+			distributionURL: client.configuration.endpoints.distribution.baseURL.absoluteString,
+			submissionURL: client.configuration.endpoints.submission.baseURL.absoluteString,
+			verificationURL: client.configuration.endpoints.verification.baseURL.absoluteString
 		)
 		navigationController?.pushViewController(viewController, animated: true)
 	}
@@ -107,7 +114,7 @@ final class DMViewController: UITableViewController {
 	private func clearRegToken() {
 		store.registrationToken = nil
 		let alert = UIAlertController(title: "Reg Token", message: "Reg Token deleted", preferredStyle: .alert)
-		alert.addAction(UIAlertAction(title: "OK", style: .cancel))
+		alert.addAction(UIAlertAction(title: AppStrings.Common.alertActionOk, style: .cancel))
 		self.present(alert, animated: true, completion: nil)
 	}
 
@@ -249,18 +256,13 @@ extension SAP_TemporaryExposureKey: Comparable {
 	}
 }
 
-private extension FetchedDaysAndHours {
-	var allBuckets: [SAPDownloadedPackage] {
-		Array(days.bucketsByDay.values) + Array(hours.bucketsByHour.values)
-	}
-}
-
 private class KeyCell: UITableViewCell {
 	static var reuseIdentifier = "KeyCell"
 	override init(style _: UITableViewCell.CellStyle, reuseIdentifier: String?) {
 		super.init(style: .subtitle, reuseIdentifier: reuseIdentifier)
 	}
 
+	@available(*, unavailable)
 	required init?(coder _: NSCoder) {
 		fatalError("init(coder:) has not been implemented")
 	}
@@ -274,3 +276,5 @@ extension DMViewController: DMSubmissionStateViewControllerDelegate {
 		exposureManager.getTestDiagnosisKeys(completionHandler: completionHandler)
 	}
 }
+
+#endif
